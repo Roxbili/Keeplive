@@ -1,0 +1,35 @@
+# Domain server only. Replace both example names before using.
+# Copy dist/ from the home project to /srv/keeplive/dist on this server.
+# The upstream is a Tailscale Serve HTTPS address accessible ONLY inside
+# your tailnet. Enable Tailscale HTTPS and restrict this home service to
+# the domain server with tailnet access rules.
+photos.example.com {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+    }
+    @sharePages path /s/*
+    header @sharePages {
+        Cache-Control "private, no-store"
+        X-Robots-Tag "noindex, nofollow, noarchive"
+    }
+
+    handle /api/* {
+        header Cache-Control "private, no-store"
+        reverse_proxy https://home-computer.example-tailnet.ts.net {
+            header_up Host {host}
+            transport http {
+                dial_timeout 10s
+                response_header_timeout 15m
+            }
+        }
+    }
+
+    handle {
+        root * /srv/keeplive/dist
+        try_files {path} /index.html
+        file_server
+    }
+}

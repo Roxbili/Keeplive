@@ -1,0 +1,33 @@
+{
+    admin off
+    auto_https off
+}
+http://127.0.0.1:18080 {
+    bind 127.0.0.1
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+    }
+    @sharePages path /s/*
+    header @sharePages {
+        Cache-Control "private, no-store"
+        X-Robots-Tag "noindex, nofollow, noarchive"
+    }
+    handle /api/* {
+        header Cache-Control "private, no-store"
+        reverse_proxy 127.0.0.1:13210 {
+            transport http {
+                dial_timeout 10s
+                response_header_timeout 15m
+            }
+        }
+    }
+    handle {
+        root * /srv/keeplive/current
+        header Cache-Control "private, no-store"
+        try_files {path} /index.html
+        file_server
+    }
+}

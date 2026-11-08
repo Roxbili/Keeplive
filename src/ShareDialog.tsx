@@ -1,0 +1,16 @@
+import { useState } from 'react';
+import { Check,Copy,ExternalLink,Link2,LoaderCircle } from 'lucide-react';
+import { api } from './api';
+import { useDialog } from './useDialog';
+
+export interface ShareRecord {id:string;count:number;cover:string|null;expiresAt:string|null;createdAt:string;allowDownload:boolean;status:'active'|'expired'|'revoked';link?:string}
+export const absoluteShareLink=(link:string)=>new URL(link,window.location.origin).href;
+export function ShareLink({link}:{link:string}){
+  const [copied,setCopied]=useState(false),[error,setError]=useState('');const full=absoluteShareLink(link),local=['127.0.0.1','localhost','[::1]'].includes(new URL(full).hostname);
+  return <div className="share-link-result"><label>分享链接<input readOnly value={full} onFocus={event=>event.currentTarget.select()} aria-label="分享链接" spellCheck={false}/></label><div className="share-link-actions"><button type="button" className="primary" onClick={async()=>{try{await navigator.clipboard.writeText(full);setCopied(true);setError('');}catch{setError('请选中上方链接并复制');}}}>{copied?<Check size={16}/>:<Copy size={16}/>} {copied?'已复制':'复制链接'}</button><a href={full} target="_blank" rel="noreferrer" className="secondary"><ExternalLink size={16}/>查看分享</a></div>{error&&<p className="form-error" role="alert">{error}</p>}{local&&<p className="share-local-note">当前是本机链接，只能在这台电脑打开。配置相册域名后，才可分享给其他人。</p>}</div>;
+}
+export default function ShareDialog({ids,onClose,onCreated}:{ids:string[];onClose:()=>void;onCreated:()=>void}){
+  const [days,setDays]=useState(7),[download,setDownload]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState<ShareRecord|null>(null);const root=useDialog(true,onClose,busy);
+  async function create(){setBusy(true);setError('');try{const next=await api<ShareRecord>('/shares','POST',{ids,expiresInDays:days,allowDownload:download});setResult(next);onCreated();}catch(error){setError((error as Error).message);}finally{setBusy(false);}}
+  return <div className="modal-backdrop"><section ref={root} className="dialog share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title"><h2 id="share-dialog-title">{result?'分享已创建':'创建分享相册'}</h2><p>{result?'持有链接的人可以直接查看，无需登录。':`把选中的 ${ids.length.toLocaleString()} 项影像，分享给想一起回忆的人。`}</p>{result?<ShareLink link={result.link!}/>:<><label>链接有效期<select value={days} disabled={busy} onChange={event=>setDays(Number(event.target.value))}><option value={1}>1 天</option><option value={7}>7 天</option><option value={30}>30 天</option><option value={0}>永久有效</option></select></label><label className="checkbox-label"><input type="checkbox" checked={download} disabled={busy} onChange={event=>setDownload(event.target.checked)}/><span>允许下载原文件</span></label><p className="share-privacy-note">链接可以被转发。关闭原文件下载仍无法阻止截图或保存预览。</p></>}{error&&<p className="form-error" role="alert">{error}</p>}<div className="dialog-actions"><button type="button" className="secondary" disabled={busy} onClick={onClose}>{result?'完成':'取消'}</button>{!result&&<button className="primary" disabled={busy||!ids.length} onClick={()=>void create()}>{busy?<LoaderCircle size={16} className="spin"/>:<Link2 size={16}/>}生成分享链接</button>}</div></section></div>;
+}
