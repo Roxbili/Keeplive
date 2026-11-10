@@ -4,7 +4,7 @@
 
 - Public address: **https://photos.cxzzzz.top:7443/**. This is the existing working HTTPS entry point. The public 443 entry currently fails its TLS handshake from the Mac; its configuration and other hosted applications were left unchanged.
 - Application source: commit `1f87d01d0cc19fae1e0ad8b832c93830bdde744b` on the pushed `codex/macos-support` branch.
-- Frontend: `/srv/keeplive/releases/20261111-macos-1f87d01`, selected by `/srv/keeplive/current`. Four build files were individually checked against SHA-256 hashes both on the server and through public HTTPS. The three old release directories were removed at the user’s request after this deployment; the server now retains only the active release.
+- Frontend: `/srv/keeplive/releases/20261111-macos-1f87d01`, selected by `/srv/keeplive/current`. Four build files were individually checked against SHA-256 hashes both on the server and through public HTTPS. The three old release directories were removed during cleanup after this deployment; the server now retains only the active release.
 - Gateway: the existing `keeplive-web` Caddy service remains active. Publishing used an atomic symlink replacement, without changing the live Caddy configuration, TLS files or other applications, and without restarting the shared gateway.
 - Backend: the current Mac serves `127.0.0.1:3210`. A background OpenSSH connection forwards **server `127.0.0.1:13210` → Mac `127.0.0.1:3210`**. The server-side listener is restricted to loopback. No photo files, account database or share encryption key were copied to Linux.
 - Mac `.env`: `PUBLIC_ORIGIN=https://photos.cxzzzz.top:7443`, `COOKIE_SECURE=1`, `TRUST_PROXY=127.0.0.1`, with the backend still bound to loopback. Local HTTP use remains supported by the application's local-request handling.
@@ -26,7 +26,7 @@ ssh -fNT -M -S .data/deploy-ssh.sock -o ControlPersist=yes \
   -R 127.0.0.1:13210:127.0.0.1:3210 roxbili@tx.cxzzzz.top
 ```
 
-Validation on the Mac and server passed: trusted HTTPS, current frontend/assets, anonymous auth status with `setupAllowed=false`, private API 401, share SPA/no-store/noindex, same-origin login reaching password verification using an impossible username, and cross-origin login 403. Full local suite before committing: 80 passed, 7 Windows-specific tests skipped; typecheck and production build passed. Actual account login and private media playback over the public gateway still require the user's album credentials; no production account or share was created for deployment checks. The four old Windows source paths still require relocation to the user's actual Mac photo directories.
+Validation on the Mac and server passed: trusted HTTPS, current frontend/assets, anonymous auth status with `setupAllowed=false`, private API 401, share SPA/no-store/noindex, same-origin login reaching password verification using an impossible username, and cross-origin login 403. Full local suite before committing: 80 passed, 7 Windows-specific tests skipped; typecheck and production build passed. Actual account login and private media playback over the public gateway still require the user's album credentials; no production account or share was created for deployment checks. The four offline Windows photo sources and their associated indexes were subsequently removed at the user's request, after a local database backup. The account and original photo files were retained; new Mac folders can now be added as fresh sources.
 
 ```sh
 python3 deploy/server/probe.py --url https://photos.cxzzzz.top:7443
