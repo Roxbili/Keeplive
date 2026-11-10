@@ -59,3 +59,20 @@ test('disconnect during initial path validation never opens a desktop window',as
     await ready;outgoing.destroy();await closed;release();await new Promise(resolve=>setTimeout(resolve,30));assert.equal(invoked,0);
   }finally{release();await new Promise(resolve=>server.close(resolve));await runtime.close();await rm(base,{recursive:true,force:true});}
 });
+
+test('a migrated Windows source opens a new local picker instead of rejecting its old path',{skip:process.platform==='win32'},async()=>{
+  const base=await mkdtemp(path.join(tmpdir(),'keeplive-migrated-picker-')),folder=path.join(base,'Mac照片');await mkdir(folder);
+  let initial,calls=0;
+  const runtime=createApp({dataDir:path.join(base,'data'),nativePicker:{supported:true,async pick(hint){initial=hint;calls++;return folder;},async close(){}}});
+  const server=runtime.app.listen(0,'127.0.0.1');await once(server,'listening');const origin=`http://127.0.0.1:${server.address().port}`;
+  try{
+    const setup=await fetch(origin+'/api/auth/setup',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({username:'owner',password:'migration-test-password'})});
+    const cookie=setup.headers.get('set-cookie').split(';')[0];
+    const request=hint=>fetch(origin+'/api/directories/native',{method:'POST',headers:{Origin:origin,Cookie:cookie,'Content-Type':'application/json'},body:JSON.stringify({path:hint})});
+    const selected=await request('E:\\旧照片\\旅行');assert.equal(selected.status,200);assert.equal((await selected.json()).path,folder);assert.equal(initial,'');assert.equal(calls,1);
+    assert.equal((await request('relative/folder')).status,400);assert.equal(calls,1,'Ordinary relative paths are still rejected');
+    const browse=await fetch(origin+'/api/directories?path='+encodeURIComponent('E:\\旧照片\\旅行'),{headers:{Cookie:cookie}});
+    assert.equal(browse.status,200);assert.equal((await browse.json()).path,null,'The web fallback starts at local locations for migrated Windows paths');
+    assert.equal(runtime.store.sources().length,0,'Picking a replacement never changes the old source by itself');
+  }finally{await new Promise(resolve=>server.close(resolve));await runtime.close();await rm(base,{recursive:true,force:true});}
+});

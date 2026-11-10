@@ -2,6 +2,7 @@ import { randomUUID, randomBytes, scrypt as callback } from 'node:crypto';
 import { promisify } from 'node:util';
 import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { assertOutsidePhotosLibrary } from './paths.js';
 
 const scrypt=promisify(callback);
 export const userError=(status,message)=>Object.assign(new Error(message),{status});
@@ -55,15 +56,18 @@ export class Users {
   async roots(input,ignoreId){
     if(!Array.isArray(input)||input.length>16||input.some(p=>typeof p!=='string'||!path.isAbsolute(p)))throw userError(400,'请填写最多 16 个完整文件夹路径');
     const roots=[];
-    for(const p of input){let full;try{full=await realpath(p);if(!(await stat(full)).isDirectory())throw new Error();}catch{throw userError(400,'授权目录不存在，请确认硬盘已连接');}
+    for(const p of input){assertOutsidePhotosLibrary(p);let full;try{full=await realpath(p);if(!(await stat(full)).isDirectory())throw new Error();}catch{throw userError(400,'授权目录不存在，请确认硬盘已连接');}
+      assertOutsidePhotosLibrary(full);
       const data=await realpath(this.store.dataDir);if(overlap(full,data))throw userError(400,'授权目录不能包含相册数据或缓存');
       if(!roots.some(r=>key(r)===key(full)))roots.push(full);
     }
     this.assertNoOverlap(roots,ignoreId);return roots;
   }
   async assertSource(userId,input){
+    assertOutsidePhotosLibrary(input);
     if(path.resolve(input).split(/[\\/]/).some(part=>part.toLowerCase()==='.keeplive-trash'))throw userError(400,'回收目录不能作为照片来源');
     let full;try{full=await realpath(input);if(!(await stat(full)).isDirectory())throw new Error();}catch{throw userError(400,'找不到这个文件夹，请确认路径及硬盘连接');}
+    assertOutsidePhotosLibrary(full);
     if(full.split(/[\\/]/).some(part=>part.toLowerCase()==='.keeplive-trash'))throw userError(400,'回收目录不能作为照片来源');
     const data=await realpath(this.store.dataDir);
     const user=this.get(userId);if(!user?.active)throw userError(401,'请重新登录');

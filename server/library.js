@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readdir, stat,realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { ExifTool } from 'exiftool-vendored';
+import { isPhotosLibraryPath,photosLibraryMessage } from './paths.js';
 
 const photos=new Set(['.jpg','.jpeg','.png','.webp','.heic','.heif','.avif','.tif','.tiff']);
 const videos=new Set(['.mov','.mp4','.m4v','.webm']);
@@ -32,12 +33,14 @@ export function pairMedia(files) {
 
 export async function walk(root,recursive=true) {
   const files=[],errors=[];
+  if(isPhotosLibraryPath(root))return {files,errors:[photosLibraryMessage]};
+  try{if(isPhotosLibraryPath(await realpath(root)))return {files,errors:[photosLibraryMessage]};}catch{/* visit reports unavailable folders below. */}
   async function visit(dir){
     let entries;try{entries=await readdir(dir,{withFileTypes:true});}catch(e){errors.push(`${path.relative(root,dir)||'.'}: ${e.code}`);return;}
     for(const entry of entries){
       if(entry.isSymbolicLink() || entry.name.startsWith('.'))continue;
       const full=path.join(dir,entry.name);
-      if(entry.isDirectory()){if(recursive)await visit(full);continue;}
+      if(entry.isDirectory()){if(recursive&&!isPhotosLibraryPath(full))await visit(full);continue;}
       if(!entry.isFile())continue;
       const ext=path.extname(entry.name).toLowerCase();
       const kind=photos.has(ext)?'photo':videos.has(ext)?'video':null;
@@ -77,6 +80,7 @@ export class Library {
   async run(sources){
     for(const source of sources){
       const job=this.getJob(source.ownerId);
+      if(isPhotosLibraryPath(source.path)){this.store.sourceStatus(source.id,'offline',photosLibraryMessage);continue;}
       try{if(!(await stat(source.path)).isDirectory()||path.relative(path.resolve(source.path),await realpath(source.path))!=='')throw new Error('不是原文件夹');}catch{this.store.sourceStatus(source.id,'offline','目录不可访问，请连接硬盘或重新定位');continue;}
       this.store.sourceStatus(source.id,'scanning');
       const {files,errors}=await walk(source.path,source.recursive); job.total+=files.length;

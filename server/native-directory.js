@@ -2,11 +2,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const unavailable=message=>Object.assign(new Error(message),{status:409});
 export class NativeDirectoryPicker {
-  constructor({supported=process.platform==='win32'&&process.env.SESSIONNAME!=='Services',run=promisify(execFile)}={}){
-    this.supported=supported;this.run=run;this.pending=null;this.controller=null;this.closed=false;
+  constructor({platform=process.platform,supported=platform==='darwin'||(platform==='win32'&&process.env.SESSIONNAME!=='Services'),run=promisify(execFile)}={}){
+    this.platform=platform;this.supported=supported;this.run=run;this.pending=null;this.controller=null;this.closed=false;
   }
   async pick(initial='',{signal}={}){
     if(!this.supported||this.closed)throw unavailable('系统文件夹选择不可用，请使用网页选择');
@@ -18,9 +19,15 @@ export class NativeDirectoryPicker {
   }
   async open(initial,signal){
     try{
-      const script=await readFile(new URL('./native-directory.ps1',import.meta.url),'utf8');
-      const command=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
-      const {stdout}=await this.run(command,['-NoLogo','-NoProfile','-STA','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{
+      let command,args;
+      if(this.platform==='darwin'){
+        command='/usr/bin/osascript';args=['-l','JavaScript',fileURLToPath(new URL('./native-directory-macos.js',import.meta.url))];
+      }else{
+        const script=await readFile(new URL('./native-directory.ps1',import.meta.url),'utf8');
+        command=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
+        args=['-NoLogo','-NoProfile','-STA','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')];
+      }
+      const {stdout}=await this.run(command,args,{
         windowsHide:true,encoding:'utf8',timeout:180000,maxBuffer:65536,signal,env:{...process.env,KEEPLIVE_PICKER_INITIAL:initial}
       });
       const result=JSON.parse(stdout.trim());

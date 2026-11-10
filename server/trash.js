@@ -2,7 +2,7 @@ import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {mkdir,lstat,realpath,rename,writeFile,link,unlink,copyFile,utimes} from 'node:fs/promises';
 import {constants,createReadStream} from 'node:fs';
-import {resolveInside} from './paths.js';
+import {resolveInside,assertOutsidePhotosLibrary} from './paths.js';
 import {userError} from './users.js';
 
 const signature=info=>`${info.size}:${info.mtimeMs}`;
@@ -24,11 +24,13 @@ export class PhotoTrash {
   async source(sourceId,ownerId){const source=this.store.source(sourceId,ownerId);if(!source)throw userError(409,'原照片来源已移除，请先重新连接该来源');await this.store.users.assertSource(ownerId,source.path);if(path.relative(source.path,await realpath(source.path))!=='')throw userError(409,'照片目录位置已变化，请先重新定位');return source;}
   async file(root,relative,optional=false){
     const expected=path.resolve(root,relative);let info;
+    assertOutsidePhotosLibrary(root);assertOutsidePhotosLibrary(expected);
     try{info=await lstat(expected);}catch(error){if(optional&&error.code==='ENOENT')return null;throw error;}
     if(!info.isFile()||info.isSymbolicLink())throw userError(409,'文件位置已变化，请重新扫描后再操作');
     const actual=await resolveInside(root,relative);if(path.relative(expected,actual)!=='')throw userError(409,'文件位置已变化，请重新扫描后再操作');return {path:actual,info};
   }
   async directory(root,relative){
+    assertOutsidePhotosLibrary(root);assertOutsidePhotosLibrary(path.resolve(root,relative));
     let current=root;
     for(const part of relative.split(/[\\/]/).filter(Boolean)){
       if(part==='.'||part==='..')throw userError(400,'非法回收路径');

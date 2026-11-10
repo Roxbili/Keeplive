@@ -15,6 +15,7 @@ import { registerPublicShares,registerOwnerShares } from './share-routes.js';
 import { NativeDirectoryPicker } from './native-directory.js';
 import { defaultPlayback,isVideoQuality } from './playback.js';
 import { PhotoTrash } from './trash.js';
+import { samePath,isForeignWindowsPath } from './paths.js';
 
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const fail=(status,message)=>Object.assign(new Error(message),{status});
@@ -83,6 +84,7 @@ export function createApp(options={}) {
     try{
       if(res.destroyed||req.aborted)return;
       let initial=req.body.path||req.user.allowedRoots[0]||'';
+      if(isForeignWindowsPath(initial))initial='';
       if(initial){
         if(!path.isAbsolute(initial))throw fail(400,'文件夹路径不正确');
         const exists=await stat(initial).then(info=>info.isDirectory()).catch(()=>false);
@@ -115,7 +117,7 @@ export function createApp(options={}) {
     if(!auth.user(req))throw fail(401,'请重新登录');
     if(library.job.running)throw fail(409,'扫描进行中，请稍后修改目录');
     store.users.assertNoOverlap([input.path],req.user.id);
-    if(store.sources(req.user.id).some(s=>s.path.toLowerCase()===input.path.toLowerCase()))throw fail(409,'这个文件夹已经添加');
+    if(store.sources(req.user.id).some(s=>samePath(s.path,input.path)))throw fail(409,'这个文件夹已经添加');
     const source=store.addSource(input);void library.scan(req.user.id);res.status(201).json(source);
   });
   app.patch('/api/sources/:id',async(req,res)=>{
@@ -125,7 +127,7 @@ export function createApp(options={}) {
     if(!auth.user(req))throw fail(401,'请重新登录');
     if(library.job.running)throw fail(409,'扫描进行中，请稍后修改目录');
     store.users.assertNoOverlap([input.path],req.user.id);
-    if(store.sources(req.user.id).some(s=>s.id!==source.id && s.path.toLowerCase()===input.path.toLowerCase()))throw fail(409,'这个文件夹已经添加');
+    if(store.sources(req.user.id).some(s=>s.id!==source.id && samePath(s.path,input.path)))throw fail(409,'这个文件夹已经添加');
     const result=store.updateSource(source.id,input);void library.scan(req.user.id);res.json(result);
   });
   app.delete('/api/sources/:id',(req,res)=>{if(!store.source(req.params.id,req.user.id))throw fail(404,'目录不存在');if(library.job.running)throw fail(409,'扫描进行中，请稍后修改目录');if(store.db.prepare('SELECT id FROM photo_trash WHERE sourceId=? AND ownerId=? LIMIT 1').get(req.params.id,req.user.id))throw fail(409,'这个来源还有回收记录，请先恢复回收站中的影像，再移除来源');store.removeSource(req.params.id);res.json({ok:true});});
