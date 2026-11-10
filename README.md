@@ -87,11 +87,13 @@ Live Photo 应保留静态照片和对应 MOV 视频。优先根据 `ContentIden
 
 扫描期间禁用目录修改，以免出现不一致。硬盘断开会标记为未连接，重新连接后自动恢复同步；子文件夹无法读取时标记为部分读取并保留旧记录。移除来源只移除索引和该来源收藏，不删除硬盘照片。缓存目前不会自动清理，需要时可停止服务并删除 `.data/cache/`，保留数据库。
 
-## 未来通过域名访问
+## 通过域名访问
+
+当前部署入口：**https://photos.cxzzzz.top:7443/**。Linux 服务器提供 HTTPS 网页与网关，通过反向 SSH 连接当前 Mac 后端；照片、账号和索引保留在 Mac。Mac 与相册服务需保持运行，当前隧道断线或重启后需手动重连，未设置登录自启。部署与回滚记录见 [服务器部署说明](deploy/server/README.md)。
 
 设计是 **浏览器 → 域名服务器 → 加密私有网络 → 家中相册服务 → 本地硬盘**。域名服务器放网页构建文件，转发媒体但不保存照片库。电脑休眠、关机或家庭网络断开时，域名页面仍能打开并显示离线提示，无法读取照片。
 
-推荐部署步骤：
+下面是 Tailscale + Caddy 的替代部署参考：
 
 1. 家中电脑与域名服务器安装 Tailscale，加入同一个私有网络。先验证两个设备之间的连通性和实际传输速度，家庭宽带上行与中继质量会影响播放。
 2. 家中电脑继续将 Keeplive 绑定 `127.0.0.1:3210`。通过 **Tailscale Serve** 在私有网络内发布这个本地服务：`tailscale serve --bg http://127.0.0.1:3210`。按提示启用 tailnet HTTPS。
@@ -102,7 +104,7 @@ Live Photo 应保留静态照片和对应 MOV 视频。优先根据 `ContentIden
 
 示例配置没有媒体持久缓存。家中电脑的本地转换缓存及浏览器必要的内存播放缓冲仍会使用。Caddy 终止外部 TLS，再经私有加密连接读取家中内容。
 
-以上配置是部署准备，尚未连接真实服务器、绑定域名或发布。上线前需验证 HTTPS Cookie、访问规则、代理的视频 Range、家中服务离线状态和 iPhone Safari 播放。
+以上 Tailscale 配置为参考方案；当前服务器实际采用反向 SSH。已验证公开 HTTPS、构建资源和匿名鉴权边界；真实账号登录、媒体 Range、家中服务离线状态与 iPhone Safari 播放仍需使用者验收。
 
 参考：[Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve)、[连接类型](https://tailscale.com/docs/reference/connection-types)、[Caddy HTTPS](https://caddyserver.com/docs/quick-starts/https)。
 
@@ -116,7 +118,7 @@ Live Photo 应保留静态照片和对应 MOV 视频。优先根据 `ContentIden
 
 链接密钥位于 `#` 后，通过同源请求换取只用于该分享的 HttpOnly Cookie。分享接口每次读取媒体、以及转换完成后均重新验证权限，私人接口仍要求账号登录。数据库只保存访问密钥哈希及加密副本；**备份时同时保留 `.data/keeplive.sqlite` 和 `.data/share.key`**。丢失 share.key 后旧链接仍可按哈希验证，但无法再次复制原链接，需要换新链接。不要公开 `.data` 或 share.key。
 
-本地 `127.0.0.1`/`localhost` 链接只能在运行相册的电脑打开。外部分享需先按前面的部署步骤配置 HTTPS 域名；设置 `PUBLIC_ORIGIN` 后，创建的分享链接会使用该域名。家中电脑需保持在线。服务器的分享页面及全部分享 API 使用 no-store/no-referrer/noindex；真实服务器、域名和 iPhone Safari 尚未验收。
+本地 `127.0.0.1`/`localhost` 链接只能在运行相册的电脑打开。外部分享需先按前面的部署步骤配置 HTTPS 域名；设置 `PUBLIC_ORIGIN` 后，创建的分享链接会使用该域名。家中电脑需保持在线。服务器的分享页面及全部分享 API 使用 no-store/no-referrer/noindex；匿名分享页面路由和响应头已在真实服务器验证；真实分享链接、原片播放和 iPhone Safari 仍需使用者验收。
 
 ## 开发与检查
 

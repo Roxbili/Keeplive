@@ -1,4 +1,47 @@
-# Current server deployment
+# Server deployment
+
+## Current deployment · 2026-11-11
+
+- Public address: **https://photos.cxzzzz.top:7443/**. This is the existing working HTTPS entry point. The public 443 entry currently fails its TLS handshake from the Mac; its configuration and other hosted applications were left unchanged.
+- Application source: commit `1f87d01d0cc19fae1e0ad8b832c93830bdde744b` on the pushed `codex/macos-support` branch.
+- Frontend: `/srv/keeplive/releases/20261111-macos-1f87d01`, selected by `/srv/keeplive/current`. Four build files were individually checked against SHA-256 hashes both on the server and through public HTTPS. The previous `releases/20261007-share-playback` directory remains available for rollback.
+- Gateway: the existing `keeplive-web` Caddy service remains active. Publishing used an atomic symlink replacement, without changing the live Caddy configuration, TLS files or other applications, and without restarting the shared gateway.
+- Backend: the current Mac serves `127.0.0.1:3210`. A background OpenSSH connection forwards **server `127.0.0.1:13210` → Mac `127.0.0.1:3210`**. The server-side listener is restricted to loopback. No photo files, account database or share encryption key were copied to Linux.
+- Mac `.env`: `PUBLIC_ORIGIN=https://photos.cxzzzz.top:7443`, `COOKIE_SECURE=1`, `TRUST_PROXY=127.0.0.1`, with the backend still bound to loopback. Local HTTP use remains supported by the application's local-request handling.
+- The tunnel was authenticated interactively and forked into the background. No server password was written to a script or configuration file, and no SSH authorized keys were added. Control socket: project-local `.data/deploy-ssh.sock`.
+- No Mac login/boot startup was installed. The Mac and backend must stay running. The current tunnel has SSH keepalives but does not automatically reconnect after a network loss or reboot; reconnect it manually as below.
+- Server staging, build manifest, previous-release link and probe: `~/keeplive-deploy/staging-20261111-macos-1f87d01/`. Mac pre-deployment configuration/database/key backup: `.data/backups/gateway-deploy-20261111-010503/`.
+
+From the Mac project root, inspect the current background connection:
+
+```sh
+ssh -S .data/deploy-ssh.sock -O check roxbili@tx.cxzzzz.top
+```
+
+If the connection has stopped, reconnect interactively; SSH will request authentication without storing a password:
+
+```sh
+ssh -fNT -M -S .data/deploy-ssh.sock -o ControlPersist=yes \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -R 127.0.0.1:13210:127.0.0.1:3210 roxbili@tx.cxzzzz.top
+```
+
+Validation on the Mac and server passed: trusted HTTPS, current frontend/assets, anonymous auth status with `setupAllowed=false`, private API 401, share SPA/no-store/noindex, same-origin login reaching password verification using an impossible username, and cross-origin login 403. Full local suite before committing: 80 passed, 7 Windows-specific tests skipped; typecheck and production build passed. Actual account login and private media playback over the public gateway still require the user's album credentials; no production account or share was created for deployment checks. The four old Windows source paths still require relocation to the user's actual Mac photo directories.
+
+```sh
+python3 deploy/server/probe.py --url https://photos.cxzzzz.top:7443
+```
+
+Frontend-only rollback on the server (leave backend/data intact):
+
+```sh
+sudo ln -s releases/20261007-share-playback /srv/keeplive/rollback-20261111.next
+sudo mv -Tf /srv/keeplive/rollback-20261111.next /srv/keeplive/current
+```
+
+To stop the newly established tunnel from the Mac, use `ssh -S .data/deploy-ssh.sock -O exit roxbili@tx.cxzzzz.top`. Restore `.env` from the Mac backup and restart the backend only if reverting the gateway configuration as well.
+
+## Historical Windows deployment · 2026-10-07
 
 Production deployment on 2026-10-07:
 
