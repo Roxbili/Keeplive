@@ -9,6 +9,7 @@ import Viewer from './Viewer';
 import { defaultPlayback,type PlaybackPreferences } from './playback';
 import FavoriteHeart from './FavoriteHeart';
 import FilterTabs from './FilterTabs';
+import FolderFilter from './FolderFilter';
 import ShareDialog from './ShareDialog';
 import MyShares from './MyShares';
 import Trash from './Trash';
@@ -35,7 +36,8 @@ function PhotoCard({photo,onOpen,onFavorite,selecting=false,picked=false,selecti
 export default function App(){
   const [deleteTarget,setDeleteTarget]=useState<{ids:string[];filename?:string;returnId?:string}|null>(null);
   const [auth,setAuth]=useState<AuthStatus|null>(null),[authError,setAuthError]=useState('');
-  const [view,setView]=useState<View>('timeline'),[status,setStatus]=useState<Status|null>(null),[photos,setPhotos]=useState<Photo[]>([]),[folders,setFolders]=useState<Folder[]>([]),[total,setTotal]=useState(0);
+  const [view,setView]=useState<View>('timeline'),[status,setStatus]=useState<Status|null>(null),[photos,setPhotos]=useState<Photo[]>([]),[total,setTotal]=useState(0);
+  const [folders,setFolders]=useState<Folder[]|null>(null),[folderError,setFolderError]=useState('');
   const [search,setSearch]=useState(''),[query,setQuery]=useState(''),[kind,setKind]=useState(''),[source,setSource]=useState(''),[folder,setFolder]=useState<string|undefined>(),[selected,setSelected]=useState<number|null>(null);
   const [loading,setLoading]=useState(false),[loadingMore,setLoadingMore]=useState(false),[error,setError]=useState(''),[toast,setToast]=useState(''),[revision,setRevision]=useState(0);
   const generation=useRef(0),indexVersion=useRef<number|null>(null),lastFilter=useRef(''),photosRef=useRef<Photo[]>([]),toastTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -44,7 +46,7 @@ export default function App(){
   photosRef.current=photos;
   const notify=useCallback((text:string)=>{setToast(text);if(toastTimer.current)clearTimeout(toastTimer.current);toastTimer.current=setTimeout(()=>setToast(''),4500);},[]);
   useEffect(()=>()=>{if(toastTimer.current)clearTimeout(toastTimer.current);},[]);
-  const clearAlbum=useCallback(()=>{generation.current++;selectionEpoch.current++;setDeleteTarget(null);setSelecting(false);setPicked(new Set());setShareOpen(false);setSelectionBusy(false);indexVersion.current=null;lastFilter.current='';photosRef.current=[];setSelected(null);setStatus(null);setPhotos([]);setFolders([]);setTotal(0);setSource('');setFolder(undefined);setSearch('');setQuery('');setKind('');setView('timeline');setError('');setToast('');setLoading(false);setLoadingMore(false);},[]);
+  const clearAlbum=useCallback(()=>{generation.current++;selectionEpoch.current++;setDeleteTarget(null);setSelecting(false);setPicked(new Set());setShareOpen(false);setSelectionBusy(false);indexVersion.current=null;lastFilter.current='';photosRef.current=[];setSelected(null);setStatus(null);setPhotos([]);setFolders(null);setFolderError('');setTotal(0);setSource('');setFolder(undefined);setSearch('');setQuery('');setKind('');setView('timeline');setError('');setToast('');setLoading(false);setLoadingMore(false);},[]);
   const checkAuth=useCallback(async()=>{try{const next=await api<AuthStatus>('/auth/status');setAuthError('');const id=next.user?.id??null;if(identity.current!==id){identity.current=id;setApiIdentity(id);clearAlbum();}setAuth(next);}catch(e){if(!isStaleRequest(e))setAuthError((e as Error).message);}},[clearAlbum]);
   useEffect(()=>{void checkAuth();const logout=()=>{identity.current=null;setApiIdentity(null);clearAlbum();setAuth({setup:false,setupAllowed:false,authenticated:false,user:null});};const changed=()=>{identity.current=null;setApiIdentity(null);clearAlbum();setAuth(null);void checkAuth();};const visible=()=>{if(document.visibilityState==='visible')void checkAuth();};window.addEventListener('keeplive:logout',logout);window.addEventListener('keeplive:accountchange',changed);window.addEventListener('focus',checkAuth);document.addEventListener('visibilitychange',visible);return()=>{window.removeEventListener('keeplive:logout',logout);window.removeEventListener('keeplive:accountchange',changed);window.removeEventListener('focus',checkAuth);document.removeEventListener('visibilitychange',visible);};},[checkAuth,clearAlbum]);
   useEffect(()=>{if(!authError)return;const timer=setInterval(()=>void checkAuth(),3000);return()=>clearInterval(timer);},[authError,checkAuth]);
@@ -57,6 +59,18 @@ export default function App(){
     }catch(e){if(identity.current===id&&!isStaleRequest(e))setError((e as Error).message);}
   },[]);
   useEffect(()=>{if(!auth?.authenticated)return;void refresh();const timer=setInterval(refresh,3000);return()=>clearInterval(timer);},[auth?.user?.id,auth?.authenticated,refresh]);
+  useEffect(()=>{
+    if(!auth?.authenticated)return;
+    const controller=new AbortController();
+    void api<Folder[]>('/folders','GET',undefined,{signal:controller.signal}).then(data=>{
+      if(controller.signal.aborted)return;
+      setFolders(data);
+      setFolderError('');
+    }).catch(error=>{
+      if(!controller.signal.aborted&&!isStaleRequest(error))setFolderError((error as Error).message);
+    });
+    return()=>controller.abort();
+  },[auth?.user?.id,auth?.authenticated,revision]);
   useEffect(()=>{const timer=setTimeout(()=>setQuery(search),250);return()=>clearTimeout(timer);},[search]);
   function params(offset=0){const p=new URLSearchParams({offset:String(offset),limit:'90'});if(query)p.set('search',query);if(source)p.set('source',source);if(folder!==undefined)p.set('folder',folder);if(view==='favorites')p.set('favorite','true');if(view==='live'||kind)p.set('kind',view==='live'?'live':kind);return p;}
   useEffect(()=>{selectionEpoch.current++;setPicked(new Set());setShareOpen(false);setSelectionBusy(false);},[view,query,source,folder,kind]);
@@ -68,20 +82,17 @@ export default function App(){
   function pick(id:string){setPicked(old=>{const next=new Set(old);if(next.has(id))next.delete(id);else next.add(id);return next;});}
   async function selectMatching(monthItems?:Photo[]){const id=identity.current,version=selectionEpoch.current;setSelectionBusy(true);try{const filter=params();if(monthItems?.length){const date=new Date(monthItems[0].takenAt);filter.set('from',new Date(date.getFullYear(),date.getMonth(),1).toISOString());filter.set('until',new Date(date.getFullYear(),date.getMonth()+1,1).toISOString());}const data=await api<{ids:string[]}>('/photo-selection?'+filter);if(identity.current!==id||version!==selectionEpoch.current)return;setPicked(old=>{if(!monthItems)return new Set(data.ids);const next=new Set(old),remove=data.ids.every(key=>old.has(key));for(const key of data.ids){if(remove)next.delete(key);else next.add(key);}return next;});}catch(error){if(identity.current===id&&!isStaleRequest(error))notify((error as Error).message);}finally{if(identity.current===id&&version===selectionEpoch.current)setSelectionBusy(false);}}
   useEffect(()=>{
-    if(!auth?.authenticated||!galleryViews.includes(view))return;
-    const version=++generation.current;const filter=`${view}:${query}:${source}:${folder??'<all>'}:${kind}`;
+    if(!auth?.authenticated||!galleryViews.includes(view)||view==='albums')return;
+    const version=++generation.current;const filter=JSON.stringify([view,query,source,folder,kind]);
     const changed=lastFilter.current!==filter;lastFilter.current=filter;
     const previous=photosRef.current;const count=changed?90:Math.max(90,previous.length);
     const viewingId=selected===null?null:previous[selected]?.id;
     setError('');setLoadingMore(false);if(changed){setLoading(true);setPhotos([]);setSelected(null);}
     async function load(){try{
       if(viewingId&&!changed){try{await api<Photo>('/photos/'+viewingId);}catch(error){if((error as Error&{status?:number}).status===404&&version===generation.current)setSelected(null);else throw error;}return;}
-      if(view==='albums'){const data=await api<Folder[]>('/folders');if(version===generation.current){setFolders(data);setTotal(data.length);}}
-      else{
-        const items:Photo[]=[];let found=0;
-        for(let offset=0;offset<count;offset+=150){const p=params(offset);p.set('limit',String(Math.min(150,count-offset)));const data=await api<{items:Photo[];total:number}>(`/photos?${p}`);items.push(...data.items);found=data.total;if(items.length>=found)break;}
-        if(version===generation.current){setPhotos(items);setTotal(found);setSelected(old=>{if(old===null)return null;const id=previous[old]?.id;const next=items.findIndex(p=>p.id===id);return next<0?null:next;});}
-      }
+      const items:Photo[]=[];let found=0;
+      for(let offset=0;offset<count;offset+=150){const p=params(offset);p.set('limit',String(Math.min(150,count-offset)));const data=await api<{items:Photo[];total:number}>(`/photos?${p}`);items.push(...data.items);found=data.total;if(items.length>=found)break;}
+      if(version===generation.current){setPhotos(items);setTotal(found);setSelected(old=>{if(old===null)return null;const id=previous[old]?.id;const next=items.findIndex(p=>p.id===id);return next<0?null:next;});}
     }catch(e){if(version===generation.current&&!isStaleRequest(e))setError((e as Error).message);}finally{if(version===generation.current)setLoading(false);}}
     void load();return()=>{generation.current++;};
   },[auth?.user?.id,auth?.authenticated,view,query,source,folder,kind,revision,selected]);
@@ -94,11 +105,16 @@ export default function App(){
   function deleted(result:DeleteResult){const removed=new Set(result.removed||result.moved);setDeleteTarget(null);setSelected(null);setPhotos(old=>old.filter(p=>!removed.has(p.id)));setTotal(old=>Math.max(0,old-removed.size));setPicked(new Set(result.failures.map(item=>item.id)));setSelecting(result.failures.length>0);setRevision(r=>r+1);void refresh();notify(result.failures.length?`已移入回收站 ${result.moved.length} 项，${result.failures.length} 项未完成。${result.failures[0].error}`:`已移入回收站 ${result.moved.length} 项，可在设置中恢复`);}
   function cancelDelete(){const returnId=deleteTarget?.returnId;setDeleteTarget(null);if(returnId){const index=photosRef.current.findIndex(p=>p.id===returnId);if(index>=0)setSelected(index);}}
   function navigate(next:View){setView(next);setSelecting(false);setPicked(new Set());setFolder(undefined);setSource('');setKind('');setSearch('');setSelected(null);window.scrollTo({top:0,behavior:'instant'});}
+  function changeFolder(nextSource:string,nextFolder:string|undefined){setSource(nextSource);setFolder(nextFolder);}
   async function scan(){try{await api('/scan','POST',{});await refresh();notify('正在检查新增和修改的照片');}catch(e){notify((e as Error).message);}}
   const stats=status?.stats||emptyStats,scanning=!!status?.scan.running;
   const offline=status?.sources.filter(s=>s.status==='offline')||[];
+  const sourceName=status?.sources.find(s=>s.id===source)?.name||folders?.find(f=>f.sourceId===source)?.sourceName||'照片目录';
+  const galleryError=view==='albums'?(folders?'':folderError):error;
+  const galleryLoading=view==='albums'?folders===null:loading;
+  const headingCount=view==='albums'?(folders?.length??0):source?total:stats.total;
   const groups=new Map<string,Photo[]>();for(const photo of photos){const key=dateText(photo.takenAt,{year:'numeric',month:'long'});groups.set(key,[...(groups.get(key)||[]),photo]);}
-  const title=folder!==undefined?(folder.split('/').pop()||status?.sources.find(s=>s.id===source)?.name||'照片目录'):({timeline:'所有照片',albums:'我的相册',favorites:'心里的偏爱',live:'鲜活的瞬间',settings:'设置',sources:'照片来源',account:'我的账号',users:'账号管理',shares:'我的分享',trash:'回收站'} as Record<View,string>)[view];
+  const title=view==='timeline'&&source?(folder?.split('/').pop()||sourceName):({timeline:'所有照片',albums:'我的相册',favorites:'心里的偏爱',live:'鲜活的瞬间',settings:'设置',sources:'照片来源',account:'我的账号',users:'账号管理',shares:'我的分享',trash:'回收站'} as Record<View,string>)[view];
   const subtitle=({timeline:'每一个平常的日子，都有值得留下的一帧。',albums:'沿着熟悉的文件夹，重温每一段旅程。',favorites:'那些让你愿意再看一眼的瞬间。',live:'让照片动起来，让那一刻再次发生。',settings:'',sources:'',account:'',users:'',shares:'',trash:''} as Record<View,string>)[view];
   if(authError)return <main className="connection-page"><CloudOff size={36}/><h1>暂时联系不上相册</h1><p>{authError}</p><button className="primary" onClick={checkAuth}><RefreshCw size={16}/>重新连接</button></main>;
   if(!auth)return <main className="connection-page"><LoaderCircle size={28} className="spin"/><p>正在打开相册…</p></main>;
@@ -112,13 +128,20 @@ export default function App(){
     </aside>
     <div className="main-column"><header className="topbar"><a className="mobile-brand" href="/" onClick={e=>{e.preventDefault();navigate('timeline');}}><Aperture size={22}/>Keeplive</a><div className="breadcrumbs"><span>我的影像</span><ChevronRight size={13}/><strong>{view==='timeline'?'照片库':view==='albums'?'我的相册':view==='favorites'?'收藏':view==='live'?'实况照片':title}</strong></div><div className="topbar-actions">{(galleryViews.includes(view)||view==='sources')&&<button className="scan-button" onClick={scan} disabled={scanning} title="已开启自动同步；需要时可立即检查照片变化"><RefreshCw size={16} className={scanning?'spin':''}/><span>{scanning?'正在同步':'立即检查'}</span></button>}</div></header>
       <main className="main-content">{view==='settings'?<Settings key={auth.user.id} user={auth.user} playback={auth.playback??defaultPlayback} onPlaybackChange={changePlayback} onNavigate={navigate} onBack={()=>navigate('timeline')} onLogout={logout}/>:view==='trash'?<Trash key={auth.user.id} onBack={()=>navigate('settings')} onRestored={()=>{void refresh();setRevision(r=>r+1);notify('照片已恢复到原位置');}}/>:view==='shares'?<MyShares key={auth.user.id} onBack={()=>navigate('timeline')} notify={notify} libraryVersion={status?.version||0}/>:view==='sources'?<Sources key={auth.user.id} status={status} user={auth.user} onRefresh={()=>{void refresh();setRevision(r=>r+1);}} onBack={()=>navigate('timeline')} notify={notify}/>:view==='account'||view==='users'?<section className="settings-page"><button className="text-button" onClick={()=>navigate('timeline')}><ArrowLeft size={17}/>返回相册</button><Account key={`${auth.user.id}:${view}`} user={auth.user} admin={view==='users'&&auth.user.role==='admin'} onUserChange={checkAuth} onLogout={logout} notify={notify}/></section>:<>
-        <div className="page-heading"><div><span className="eyebrow">{view==='live'?'MOMENTS IN MOTION':view==='favorites'?'CLOSE TO THE HEART':'THE EVERYDAY ARCHIVE'}</span><h1>{title}<span className="heading-point">.</span></h1><p>{folder!==undefined?`${status?.sources.find(s=>s.id===source)?.name||''} · ${folder||'根目录'}`:subtitle}</p></div><div className="heading-count"><strong>{view==='albums'?folders.length:stats.total.toLocaleString()}</strong><span>{view==='albums'?'个相册':'段影像记忆'}</span></div></div>
+        <div className="page-heading"><div><span className="eyebrow">{view==='live'?'MOMENTS IN MOTION':view==='favorites'?'CLOSE TO THE HEART':'THE EVERYDAY ARCHIVE'}</span><h1>{title}<span className="heading-point">.</span></h1><p>{source?`${sourceName} · ${folder===undefined?'全部文件夹':folder||'根目录'}`:subtitle}</p></div><div className="heading-count"><strong>{headingCount.toLocaleString()}</strong><span>{view==='albums'?'个相册':'段影像记忆'}</span></div></div>
         {offline.length>0&&<div className="notice"><CloudOff size={17}/><span>{offline.map(s=>s.name).join('、')} 暂未连接。连接硬盘后会自动恢复。</span><button onClick={()=>navigate('sources')}>查看目录<ArrowUpRight size={14}/></button></div>}
         {scanning&&<div className="scan-progress" role="status"><LoaderCircle size={16} className="spin"/><span>正在整理照片 · {status?.scan.processed} / {status?.scan.total}</span><div><i style={{width:`${status?.scan.total?Math.min(100,status.scan.processed/status.scan.total*100):5}%`}}/></div></div>}
         {status?.scan.error&&<div className="notice error-notice" role="alert">扫描未完成：{status.scan.error}<button onClick={scan}>重试</button></div>}
-        {view!=='albums'&&<div className="library-toolbar"><FilterTabs value={view==='live'?'live':kind} liveOnly={view==='live'} onChange={setKind}/><div className="toolbar-right"><button className={`secondary select-mode-button ${selecting?'active':''}`} aria-pressed={selecting} onClick={()=>{selectionEpoch.current++;setSelectionBusy(false);setSelecting(!selecting);setPicked(new Set());}}><CheckSquare size={16}/>{selecting?'取消选择':'选择'}</button><label className="search-box"><Search size={17}/><input aria-label="搜索照片和文件夹" placeholder="搜索照片、文件夹…" value={search} onChange={e=>setSearch(e.target.value)}/>{search&&<button className="small-icon" aria-label="清空搜索" onClick={()=>setSearch('')}><X size={15}/></button>}</label><span className="result-count">{total.toLocaleString()} 项</span></div></div>}
-        {(source||folder!==undefined)&&<button className="text-button folder-back" onClick={()=>{setSource('');setFolder(undefined);}}><ArrowLeft size={15}/>全部照片</button>}
-        {error?<div className="empty-state"><CloudOff size={34}/><h2>照片暂时没有加载出来</h2><p>{error}</p><button className="secondary" onClick={()=>{setRevision(r=>r+1);void refresh();}}>重新加载</button></div>:loading?<div className="skeleton-grid">{Array.from({length:12},(_,i)=><div key={i}/>)}</div>:view==='albums'?<div className="album-grid">{folders.map(f=><button className="album-card" key={`${f.sourceId}:${f.folder}`} onClick={()=>{setSource(f.sourceId);setFolder(f.folder);setView('timeline');}}><div className="album-cover"><img loading="lazy" src={`/api/media/${f.cover}/thumb`} alt=""/><span><FolderOpen size={18}/></span></div><div className="album-text"><h3>{f.folder.split('/').pop()||f.sourceName}</h3><p>{f.sourceName} · {f.count} 项</p><ArrowUpRight size={18}/></div></button>)}{!folders.length&&<Empty onAdd={()=>navigate('sources')}/>}</div>:photos.length?<div className="timeline">{[...groups.entries()].map(([month,items])=><section className="month-section" key={month}><div className="month-heading"><h2>{month}</h2><span>{items.length} 个瞬间</span>{selecting&&<button className="text-button month-select" disabled={selectionBusy} onClick={()=>void selectMatching(items)}>{items.every(photo=>picked.has(photo.id))?'取消本月':'选择本月'}</button>}<div/></div><div className="photo-grid">{items.map(p=><PhotoCard key={`${p.id}-${p.version}`} photo={p} selecting={selecting} picked={picked.has(p.id)} selectionBusy={selectionBusy} onOpen={()=>selecting?pick(p.id):setSelected(photos.findIndex(item=>item.id===p.id))} onFavorite={()=>favorite(p)}/>)}</div></section>)}{photos.length<total&&<button className="secondary load-more" disabled={loadingMore} onClick={loadMore}>{loadingMore&&<LoaderCircle className="spin" size={16}/>}加载更多照片</button>}<div className="archive-end"><Aperture size={15}/><span>已展示 {photos.length} / {total} 项 · 每一刻，都值得留住。</span></div></div>:stats.total>0?<div className="empty-state"><Heart size={32}/><h2>{view==='favorites'?'把喜欢的瞬间，放在这里':'没有找到符合条件的照片'}</h2><p>{view==='favorites'?'点击照片上的爱心，建立你自己的精选相册。':'试试其他关键词，或切换照片类型。'}</p></div>:<Empty onAdd={()=>navigate('sources')}/>
+        {view!=='albums'&&<div className="library-toolbar">
+          <div className="toolbar-filters">
+            <FilterTabs value={view==='live'?'live':kind} liveOnly={view==='live'} onChange={setKind}/>
+            {folderError&&!folders
+              ? <button className="secondary folder-filter-retry" onClick={()=>setRevision(r=>r+1)}>重试加载文件夹</button>
+              : <FolderFilter sources={status?.sources??[]} folders={folders??[]} source={source} folder={folder} onChange={changeFolder}/>}
+          </div>
+          <div className="toolbar-right"><button className={`secondary select-mode-button ${selecting?'active':''}`} aria-pressed={selecting} onClick={()=>{selectionEpoch.current++;setSelectionBusy(false);setSelecting(!selecting);setPicked(new Set());}}><CheckSquare size={16}/>{selecting?'取消选择':'选择'}</button><label className="search-box"><Search size={17}/><input aria-label="搜索照片和文件夹" placeholder="搜索照片、文件夹…" value={search} onChange={e=>setSearch(e.target.value)}/>{search&&<button className="small-icon" aria-label="清空搜索" onClick={()=>setSearch('')}><X size={15}/></button>}</label><span className="result-count">{total.toLocaleString()} 项</span></div>
+        </div>}
+        {galleryError?<div className="empty-state"><CloudOff size={34}/><h2>照片暂时没有加载出来</h2><p>{galleryError}</p><button className="secondary" onClick={()=>{setRevision(r=>r+1);void refresh();}}>重新加载</button></div>:galleryLoading?<div className="skeleton-grid">{Array.from({length:12},(_,i)=><div key={i}/>)}</div>:view==='albums'?<div className="album-grid">{folders?.map(f=><button className="album-card" key={`${f.sourceId}:${f.folder}`} onClick={()=>{navigate('timeline');changeFolder(f.sourceId,f.folder);}}><div className="album-cover"><img loading="lazy" src={`/api/media/${f.cover}/thumb`} alt=""/><span><FolderOpen size={18}/></span></div><div className="album-text"><h3>{f.folder.split('/').pop()||f.sourceName}</h3><p>{f.sourceName} · {f.count} 项</p><ArrowUpRight size={18}/></div></button>)}{!folders?.length&&<Empty onAdd={()=>navigate('sources')}/>}</div>:photos.length?<div className="timeline">{[...groups.entries()].map(([month,items])=><section className="month-section" key={month}><div className="month-heading"><h2>{month}</h2><span>{items.length} 个瞬间</span>{selecting&&<button className="text-button month-select" disabled={selectionBusy} onClick={()=>void selectMatching(items)}>{items.every(photo=>picked.has(photo.id))?'取消本月':'选择本月'}</button>}<div/></div><div className="photo-grid">{items.map(p=><PhotoCard key={`${p.id}-${p.version}`} photo={p} selecting={selecting} picked={picked.has(p.id)} selectionBusy={selectionBusy} onOpen={()=>selecting?pick(p.id):setSelected(photos.findIndex(item=>item.id===p.id))} onFavorite={()=>favorite(p)}/>)}</div></section>)}{photos.length<total&&<button className="secondary load-more" disabled={loadingMore} onClick={loadMore}>{loadingMore&&<LoaderCircle className="spin" size={16}/>}加载更多照片</button>}<div className="archive-end"><Aperture size={15}/><span>已展示 {photos.length} / {total} 项 · 每一刻，都值得留住。</span></div></div>:stats.total>0?<div className="empty-state"><Heart size={32}/><h2>{view==='favorites'&&!source?'把喜欢的瞬间，放在这里':'没有找到符合条件的照片'}</h2><p>{view==='favorites'&&!source?'点击照片上的爱心，建立你自己的精选相册。':'试试其他关键词，或切换文件夹和照片类型。'}</p></div>:<Empty onAdd={()=>navigate('sources')}/>
         }
       </>}</main>
     </div>
