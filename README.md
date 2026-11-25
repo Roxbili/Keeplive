@@ -89,7 +89,9 @@ Live Photo 应保留静态照片和对应 MOV 视频。优先根据 `ContentIden
 
 ## 通过域名访问
 
-当前部署入口：**https://photos.cxzzzz.top:7443/**。Linux 服务器提供 HTTPS 网页与网关，通过反向 SSH 连接当前 Mac 后端；照片、账号和索引保留在 Mac。Mac 与相册服务需保持运行，当前隧道断线或重启后需手动重连，未设置登录自启。部署与回滚记录见 [服务器部署说明](deploy/server/README.md)。
+当前部署入口：**https://photos.cxzzzz.top:7443/**。Linux 服务器提供 HTTPS 网页与网关，通过反向 SSH 连接当前 Mac 后端；照片、账号和索引保留在 Mac。Mac 与相册服务需保持运行。隧道由 macOS LaunchAgent 管理，登录后自动启动，进程退出后自动重新连接；SSH 每 15 秒检查连接，连续 3 次无响应后退出，重复失败时启动间隔至少 5 秒。部署与管理命令见 [服务器部署说明](deploy/server/README.md)。
+
+Mac 隧道模板与安装脚本位于 `deploy/macos/`。准备好已获服务器授权的 `~/.ssh/keeplive_tunnel_ed25519` 密钥后，在项目根目录执行 `node deploy/macos/install-tunnel.js`，即可安装并加载自动重连任务。重复执行会复用相同配置的已加载任务。
 
 设计是 **浏览器 → 域名服务器 → 加密私有网络 → 家中相册服务 → 本地硬盘**。域名服务器放网页构建文件，转发媒体但不保存照片库。电脑休眠、关机或家庭网络断开时，域名页面仍能打开并显示离线提示，无法读取照片。
 

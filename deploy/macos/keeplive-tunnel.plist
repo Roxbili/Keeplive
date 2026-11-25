@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>com.roxbili.keeplive.tunnel</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/ssh</string>
+		<string>-N</string>
+		<string>-T</string>
+		<string>-M</string>
+		<string>-S</string>
+		<string>{{PROJECT_ROOT}}/.data/tunnel-ssh.sock</string>
+		<string>-i</string>
+		<string>{{HOME}}/.ssh/keeplive_tunnel_ed25519</string>
+		<string>-o</string>
+		<string>BatchMode=yes</string>
+		<string>-o</string>
+		<string>IdentitiesOnly=yes</string>
+		<string>-o</string>
+		<string>StrictHostKeyChecking=yes</string>
+		<string>-o</string>
+		<string>ExitOnForwardFailure=yes</string>
+		<string>-o</string>
+		<string>ServerAliveInterval=15</string>
+		<string>-o</string>
+		<string>ServerAliveCountMax=3</string>
+		<string>-o</string>
+		<string>ConnectTimeout=10</string>
+		<string>-o</string>
+		<string>ProxyCommand=none</string>
+		<string>-R</string>
+		<string>127.0.0.1:13210:127.0.0.1:3210</string>
+		<string>roxbili@tx.cxzzzz.top</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>{{PROJECT_ROOT}}/.data/logs/tunnel-error.log</string>
+	<key>StandardOutPath</key>
+	<string>{{PROJECT_ROOT}}/.data/logs/tunnel.log</string>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>WorkingDirectory</key>
+	<string>{{PROJECT_ROOT}}</string>
+</dict>
+</plist>
